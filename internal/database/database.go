@@ -1,11 +1,13 @@
 package database
 
 import (
+    "os"
+    "path/filepath"
     "database/sql"
-    "fmt"
     "sync"
-	"errors"
+    "errors"
     _ "github.com/glebarez/go-sqlite"
+    "time"
 )
 
 var (
@@ -14,32 +16,53 @@ var (
 )
 
 type Stats struct {
-	WPM float64
+    WPM      float64
+    Accuracy float64
+    AddedAt  time.Time
 }
 
 // ConnectToDatabase initializes the connection if it hasn't been initialized
 func connectToDatabase() (*sql.DB, error) {
     var err error
     once.Do(func() {
-        db, err = sql.Open("sqlite", "./typtea.db")
+        path, e := getDBPath()
+        if e != nil {
+            err = e
+            return
+        }
+        db, err = sql.Open("sqlite", path)
         if err != nil {
             return
         }
 
         _, err = createTable(db)
-        if err == nil {
-            fmt.Println("Connected to the SQLite database successfully.")
-        }
     })
 
     return db, err
+}
+
+func getDBPath() (string, error) {
+    configDir, err := os.UserConfigDir()
+    if err != nil {
+        return "", err
+    }
+
+    appDir := filepath.Join(configDir, "typtea")
+    // Create directory if it doesn't exist
+    if err := os.MkdirAll(appDir, 0700); err != nil {
+        return "", err
+    }
+
+    return filepath.Join(appDir, "typtea.db"), nil
 }
 
 // CreateTable ensures the stats table exists
 func createTable(db *sql.DB) (sql.Result, error) {
     sqlStmt := `CREATE TABLE IF NOT EXISTS stats (
         id INTEGER PRIMARY KEY,
-        wpm REAL NOT NULL
+        wpm REAL NOT NULL,
+        accuracy REAL NOT NULL,
+        added_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );`
     return db.Exec(sqlStmt)
 }
@@ -51,8 +74,8 @@ func InsertStats(stats *Stats) (int64, error) {
         return 0, err
     }
 
-    sqlStmt := `INSERT INTO stats (wpm) VALUES (?);`
-    result, err := db.Exec(sqlStmt, stats.WPM)
+    sqlStmt := `INSERT INTO stats (wpm, accuracy) VALUES (?, ?);`
+    result, err := db.Exec(sqlStmt, stats.WPM, stats.Accuracy)
     if err != nil {
         return 0, err
     }
@@ -60,24 +83,32 @@ func InsertStats(stats *Stats) (int64, error) {
     return result.LastInsertId()
 }
 
-// Retrives the max wpm
-func MaxWPM() (float64, error) {
+type MaxStatsData struct {
+    MaxWPM     float64
+    MaxAccuracy float64
+}
+
+func MaxStats() (*MaxStatsData, error) {
     db, err := connectToDatabase()
     if err != nil {
-        return 0, err
+        return nil, err
     }
 
-    sqlStmt := `SELECT MAX(wpm) FROM stats;`
+    sqlStmt := `SELECT MAX(wpm), MAX(accuracy) FROM stats;`
     var maxWPM sql.NullFloat64
+    var maxAccuracy sql.NullFloat64
 
-    err = db.QueryRow(sqlStmt).Scan(&maxWPM)
+    err = db.QueryRow(sqlStmt).Scan(&maxWPM, &maxAccuracy)
     if err != nil {
-        return 0, err
+        return nil, err
     }
 
-    if !maxWPM.Valid {
-        return 0, errors.New("no wpm records found")
+    if !maxWPM.Valid || !maxAccuracy.Valid {
+        return nil, errors.New("no records found")
     }
 
-    return maxWPM.Float64, nil
+    return &MaxStatsData{
+        MaxWPM:     maxWPM.Float64,
+        MaxAccuracy: maxAccuracy.Float64,
+    }, nil
 }

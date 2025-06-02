@@ -12,6 +12,7 @@ type TypingStats struct {
 	WPM               float64
 	BestWPM			  float64
 	Accuracy          float64
+	BestAccuracy      float64
 	CharactersTyped   int
 	CorrectChars      int
 	TotalChars        int
@@ -215,21 +216,22 @@ func (g *TypingGame) GetStats() TypingStats {
 		accuracy = 0
 	}
 
-	if _, err := database.InsertStats(&database.Stats{WPM: netWPM}); err != nil {
+	if _, err := database.InsertStats(&database.Stats{WPM: netWPM, Accuracy: accuracy}); err != nil {
 		fmt.Println("Insert failed:", err)
 	}
 
-	bestWPM, err := database.MaxWPM()
+	maxStats, err := database.MaxStats()
 	if err != nil {
 		fmt.Println(err)
-		bestWPM = 0
+		maxStats = &database.MaxStatsData{MaxWPM: 0, MaxAccuracy: 0}
 	}
 
 
 	return TypingStats{
 		WPM:               netWPM,
-		BestWPM:		   bestWPM,
+		BestWPM:		   maxStats.MaxWPM,
 		Accuracy:          accuracy,
+		BestAccuracy:	   maxStats.MaxAccuracy,
 		CharactersTyped:   g.GlobalPos,
 		CorrectChars:      correctChars,
 		TotalChars:        len(g.GetDisplayText()),
